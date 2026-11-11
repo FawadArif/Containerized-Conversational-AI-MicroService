@@ -1,154 +1,173 @@
-# UniSolveBot - University Assistant Chatbot (RASA + Flask)
+# UniSolveBot: Containerized Conversational AI Microservice & Cloud Testbed
 
-A university assistant chatbot combining a Flask web layer (authentication, sessions) with a RASA-powered chatbot backend, containerized with Docker Compose, with cloud infrastructure provisioned via Terraform and deployed to AWS ECR.
+A decoupled, multi-container conversational AI microservice combining a Flask web/authentication gateway with a Rasa NLU inference engine. The system is orchestrated via Docker Compose, benchmarked for concurrent tail-latency behavior, and deployed to AWS Elastic Container Registry (ECR) using Infrastructure as Code (Terraform).
 
+## System Architecture & Engineering Highlights
+
+UniSolveBot separates stateful user session management from CPU-bound NLU inference across isolated containers communicating over an internal Docker bridge network:
+
+* **Decoupled Microservice Topology:** Separates the Flask HTTP gateway (port 5000) from the Rasa NLU/Dialogue inference server (port 5005) to isolate web traffic from model execution.
+* **Declarative Cloud Provisioning (IaC):** Provisions AWS ECR repositories and image mutability policies via Terraform rather than manual console configuration.
+* **Concurrency & Tail-Latency Benchmarking:** Includes a zero-dependency Python load generator to profile request throughput saturation and p50/p95/p99 tail latency across concurrency tiers.
+* **Stateful Session & Auth Management:** Implements bcrypt password hashing, Flask session management, and SQLAlchemy ORM backed by SQLite.
+
+```text
+[Client Browser / Load Generator]
+               |
+               v  (HTTP :5000)
++----------------------------------------------+
+| Flask Gateway Container (rasa-flask)         |
+| - Session Auth (bcrypt) & SQLAlchemy/SQLite  |
+| - Asynchronous REST Proxy (/webhook)         |
++----------------------------------------------+
+               |
+               v  (Docker Internal DNS :5005)
++----------------------------------------------+
+| Rasa Inference Container (rasa-rasa)         |
+| - NLU Pipeline & Dialogue Policies           |
+| - Packaged Custom Domain Model               |
++----------------------------------------------+
 ---
 
-## Overview
+# UniSolveBot: Containerized Conversational AI Microservice & Cloud Testbed
 
-UniSolveBot lets registered users chat with an AI assistant trained to answer university-related questions - admissions, scholarships, exam regulations, hostel rules, degree requirements. Flask handles the web UI, user accounts, and sessions; RASA handles natural language understanding and dialogue.
+A decoupled, multi-container conversational AI microservice combining a Flask web/authentication gateway with a Rasa NLU inference engine. The system is orchestrated via Docker Compose, benchmarked for concurrent tail-latency behavior, and deployed to AWS Elastic Container Registry (ECR) using Infrastructure as Code (Terraform).
 
-- User registration and login with bcrypt-hashed passwords
-- Session-based authentication (Flask sessions)
-- SQLite database for user records, managed via SQLAlchemy ORM
-- Real-time chat interface proxying messages to a RASA NLU server
-- Infrastructure (AWS ECR) provisioned declaratively with Terraform
-- Multi-container orchestration via Docker Compose
+## System Architecture & Engineering Highlights
 
----
+UniSolveBot separates stateful user session management from CPU-bound NLU inference across isolated containers communicating over an internal Docker bridge network:
 
-## Architecture
+* **Decoupled Microservice Topology:** Separates the Flask HTTP gateway (port 5000) from the Rasa NLU/Dialogue inference server (port 5005) to isolate web traffic from model execution.
+* **Declarative Cloud Provisioning (IaC):** Provisions AWS ECR repositories and image mutability policies via Terraform rather than manual console configuration.
+* **Concurrency & Tail-Latency Benchmarking:** Includes a zero-dependency Python load generator (`benchmark.py`) to profile request throughput saturation and p50/p95/p99 tail latency across concurrency tiers.
+* **Stateful Session & Auth Management:** Implements bcrypt password hashing, Flask session management, and SQLAlchemy ORM backed by SQLite.
+
+```text
+[Client Browser / Load Generator]
+               |
+               v  (HTTP :5000)
++----------------------------------------------+
+| Flask Gateway Container (rasa-flask)         |
+| - Session Auth (bcrypt) & SQLAlchemy/SQLite  |
+| - Asynchronous REST Proxy (/webhook)         |
++----------------------------------------------+
+               |
+               v  (Docker Internal DNS :5005)
++----------------------------------------------+
+| Rasa Inference Container (rasa-rasa)         |
+| - NLU Pipeline & Dialogue Policies           |
+| - Packaged Custom Domain Model               |
++----------------------------------------------+
 ```
-Browser
-  |
-  v
-Flask App (auth, sessions, SQLite via SQLAlchemy)
-  |
-  v
-/webhook route
-  |
-  v
-RASA Server (NLU + dialogue) - container rasa-rasa, port 5005
 
-Flask and RASA run as separate Docker containers, connected through Docker Compose's internal network.
-```
----
+## System Performance & Tail-Latency Benchmark
+
+To evaluate container serving capacity and queuing behavior under concurrent load, the microservice was benchmarked in GitHub Codespaces using `benchmark.py` across concurrency tiers from 1 to 50 concurrent workers (100 requests per tier following 5 warm-up requests).
+
+| Concurrency | Throughput | p50 Latency | p95 Latency | p99 Latency |
+|---|---|---|---|---|
+| 1 worker | 47.89 req/s | 19.2 ms | 28.8 ms | 33.2 ms |
+| 10 workers | 43.30 req/s | 226.0 ms | 266.8 ms | 307.6 ms |
+| 25 workers | 44.06 req/s | 565.9 ms | 585.5 ms | 592.4 ms |
+| 50 workers | 36.97 req/s | 1249.8 ms | 1480.9 ms | 1485.0 ms |
+
+**Key Systems Observations:**
+* **Throughput Saturation & Contention:** Single-container throughput saturates immediately at 47.89 req/s with 1 worker. Scaling concurrency beyond 10 workers introduces CPU context-switching and worker contention, reducing effective throughput to 36.97 req/s at 50 workers.
+* **Tail-Latency Amplification:** Following Little's Law, ingress request queuing at 50 concurrent workers drives a 44.7x increase in p99 tail latency (from 33.2 ms to 1485.0 ms), demonstrating the need for horizontal container scaling and congestion-aware admission control under bursty workloads.
 
 ## Tech Stack
-```
-    Layer        ~          Technology
-Frontend         |   HTML/CSS templates (Flask-rendered)
-Backend          |   Flask (Python)
-Database         |   SQLite, SQLAlchemy (ORM)
-Auth             |   bcrypt, Flask sessions
-NLU/Chatbot      |   RASA
-Containerization |   Docker, Docker Compose
-Infrastructure as Code | Terraform
-Cloud Registry   |   AWS Elastic Container Registry
-Dev Environment  |   Kali Linux (VM)
-```
----
+
+* **Application Gateway:** Python, Flask, Jinja2
+* **AI / NLU Engine:** Rasa Open Source (NLU & Core Dialogue)
+* **Database & Auth:** SQLite, SQLAlchemy ORM, bcrypt
+* **Containerization & Orchestration:** Docker, Docker Compose
+* **Infrastructure as Code & Cloud:** Terraform, AWS Elastic Container Registry (ECR)
+* **Benchmarking & Runtime:** Python `concurrent.futures`, Linux, GitHub Codespaces
 
 ## Project Structure
-```
-Rasa/
+
+```text
+Containerized-Conversational-AI-MicroService/
 |-- Flask/
-|   |-- app.py              (Flask routes, auth, DB models, RASA proxy)
-|   |-- templates/          (HTML pages: login, register, dashboard, chat)
-|   |-- static/              (images, css files)
-|-- data/                   (RASA training data: nlu.yml, stories.yml, etc.)
-|-- actions/                (RASA custom actions)
+|   |-- app.py                  # Flask routes, auth, DB models, Rasa REST proxy
+|   |-- templates/              # HTML views (login, register, dashboard, chat)
+|   |-- static/                 # Stylesheets and static assets
+|-- data/                       # Rasa NLU training data (nlu.yml, stories.yml, rules.yml)
+|-- actions/                    # Custom Rasa action server definitions
 |-- infrastructure/
-|   |-- main.tf             (Terraform config for AWS ECR)
-|-- domain.yml              (RASA intents and responses)
-|-- config.yml
-|-- credentials.yml
-|-- endpoints.yml
-|-- Dockerfile.flask        (Flask app container build instructions)
-|-- Dockerfile.rasa         (RASA container build instructions)
-|-- docker-compose.yml
-|___ README.md
+|   |-- main.tf                 # Declarative Terraform configuration for AWS ECR
+|-- tests/                      # Automated test suites
+|-- screenshots/                # Deployment and runtime verification captures
+|-- benchmark.py                # Concurrent load generator & tail-latency profiler
+|-- domain.yml                  # Rasa intents, entities, and response templates
+|-- config.yml                  # NLU pipeline and policy configuration
+|-- credentials.yml             # REST channel credentials
+|-- endpoints.yml               # Action and tracker store endpoints
+|-- Dockerfile.flask            # Flask gateway container build instructions
+|-- Dockerfile.rasa             # Rasa inference container build instructions
+|-- docker-compose.yml          # Multi-container orchestration specification
+|-- README.md
 ```
----
 
 ## Infrastructure as Code (Terraform)
 
-The ECR repository where the Docker images get pushed is defined in infrastructure/main.tf, version-controlled instead of set up manually through the AWS console.
+The AWS ECR repository is provisioned declaratively in `infrastructure/main.tf`:
 
+```hcl
 resource "aws_ecr_repository" "unisolvebot" {
   name                 = "unisolvebot"
   image_tag_mutability = "MUTABLE"
 }
+```
 
-To apply it:
+To initialize and provision the cloud registry:
 
+```bash
 cd infrastructure
 terraform init
 terraform plan
 terraform apply
-
----
-
-## Running Locally
-```
-git clone https://github.com/yourusername/unisolvebot-rasa-flask.git
-cd unisolvebot-rasa-flask
-
-docker compose up --build
-
-Visit http://localhost:5000
-```
----
-
-## Deployment
-```
-docker tag rasa-flask:latest ecr-repo-uri:flask-latest
-docker tag rasa-rasa:latest ecr-repo-uri:rasa-latest
-
-docker push ecr-repo-uri:flask-latest
-docker push ecr-repo-uri:rasa-latest
 ```
 
----
+## Local Reproduction & Benchmarking
 
-## What This Project Demonstrates
+Clone the repository and launch the multi-container stack via Docker Compose:
 
-- Infrastructure as Code - AWS ECR provisioned via Terraform instead of manual console clicks
-- Multi-container architecture separating web/auth logic from NLU/chatbot logic
-- Secure password handling with bcrypt hashing
-- Inter-container communication over Docker's internal network (service-name DNS)
-- REST API integration - Flask calling RASA's webhook API
-- Database modeling with SQLAlchemy ORM backed by SQLite
-- Training and packaging a custom RASA NLU model inside a Docker image
-- Publishing multiple related images to a private cloud container registry
+```bash
+git clone [https://github.com/FawadArif/Containerized-Conversational-AI-MicroService.git](https://github.com/FawadArif/Containerized-Conversational-AI-MicroService.git)
+cd Containerized-Conversational-AI-MicroService
 
----
+docker compose up -d --build
+```
 
-## Screenshots
+Once the containers are running (web UI on `http://localhost:5000` and Rasa REST API on `http://localhost:5005`), run the concurrency benchmark suite:
 
-### Docker Compose Running
+```bash
+python3 benchmark.py
+```
 
+## Cloud Registry Deployment (AWS ECR)
 
+Tag and push the built container images to AWS ECR:
+
+```bash
+docker tag rasa-flask:latest <aws_account_id>.dkr.ecr.<region>[.amazonaws.com/unisolvebot:flask-latest](https://.amazonaws.com/unisolvebot:flask-latest)
+docker tag rasa-rasa:latest <aws_account_id>.dkr.ecr.<region>[.amazonaws.com/unisolvebot:rasa-latest](https://.amazonaws.com/unisolvebot:rasa-latest)
+
+docker push <aws_account_id>.dkr.ecr.<region>[.amazonaws.com/unisolvebot:flask-latest](https://.amazonaws.com/unisolvebot:flask-latest)
+docker push <aws_account_id>.dkr.ecr.<region>[.amazonaws.com/unisolvebot:rasa-latest](https://.amazonaws.com/unisolvebot:rasa-latest)
+```
+
+## Verification Screenshots
+
+### Multi-Container Orchestration (Docker Compose)
 ![Docker Compose Running](screenshots/Running.png)
 
-
-
-### AWS ECR - Pushed Image Repository
-
-
+### Cloud Registry Deployment (AWS ECR)
 ![AWS ECR](screenshots/Aws_ECR.png)
 
-
-
-### Live Chat Interface
-
-
+### Live Conversational Interface
 ![Chat Page](screenshots/chat_page.png)
-
-
-
----
-
 ## Author
 ``` 
 Fawad Arif — DevOps Engineer
