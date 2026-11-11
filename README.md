@@ -8,37 +8,6 @@ UniSolveBot separates stateful user session management from CPU-bound NLU infere
 
 * **Decoupled Microservice Topology:** Separates the Flask HTTP gateway (port 5000) from the Rasa NLU/Dialogue inference server (port 5005) to isolate web traffic from model execution.
 * **Declarative Cloud Provisioning (IaC):** Provisions AWS ECR repositories and image mutability policies via Terraform rather than manual console configuration.
-* **Concurrency & Tail-Latency Benchmarking:** Includes a zero-dependency Python load generator to profile request throughput saturation and p50/p95/p99 tail latency across concurrency tiers.
-* **Stateful Session & Auth Management:** Implements bcrypt password hashing, Flask session management, and SQLAlchemy ORM backed by SQLite.
-
-```text
-[Client Browser / Load Generator]
-               |
-               v  (HTTP :5000)
-+----------------------------------------------+
-| Flask Gateway Container (rasa-flask)         |
-| - Session Auth (bcrypt) & SQLAlchemy/SQLite  |
-| - Asynchronous REST Proxy (/webhook)         |
-+----------------------------------------------+
-               |
-               v  (Docker Internal DNS :5005)
-+----------------------------------------------+
-| Rasa Inference Container (rasa-rasa)         |
-| - NLU Pipeline & Dialogue Policies           |
-| - Packaged Custom Domain Model               |
-+----------------------------------------------+
----
-
-# UniSolveBot: Containerized Conversational AI Microservice & Cloud Testbed
-
-A decoupled, multi-container conversational AI microservice combining a Flask web/authentication gateway with a Rasa NLU inference engine. The system is orchestrated via Docker Compose, benchmarked for concurrent tail-latency behavior, and deployed to AWS Elastic Container Registry (ECR) using Infrastructure as Code (Terraform).
-
-## System Architecture & Engineering Highlights
-
-UniSolveBot separates stateful user session management from CPU-bound NLU inference across isolated containers communicating over an internal Docker bridge network:
-
-* **Decoupled Microservice Topology:** Separates the Flask HTTP gateway (port 5000) from the Rasa NLU/Dialogue inference server (port 5005) to isolate web traffic from model execution.
-* **Declarative Cloud Provisioning (IaC):** Provisions AWS ECR repositories and image mutability policies via Terraform rather than manual console configuration.
 * **Concurrency & Tail-Latency Benchmarking:** Includes a zero-dependency Python load generator (`benchmark.py`) to profile request throughput saturation and p50/p95/p99 tail latency across concurrency tiers.
 * **Stateful Session & Auth Management:** Implements bcrypt password hashing, Flask session management, and SQLAlchemy ORM backed by SQLite.
 
